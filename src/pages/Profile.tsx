@@ -16,12 +16,6 @@ import {
   Crown,
   ChevronRight,
   Swords,
-  LogOut,
-  Pencil,
-  Camera,
-  X,
-  Save,
-  Loader2,
 } from "lucide-react";
 import {
   AreaChart,
@@ -33,10 +27,6 @@ import {
   CartesianGrid,
 } from "recharts";
 import { getUser, getHabits, getTimerSessions } from "@/lib/storage";
-import { useAuth } from "@/hooks/useAuth";
-import { signOut, fetchProfile, updateProfile, uploadAvatar } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
-import { toast } from "sonner";
 import { mockDailyStats } from "@/lib/mockData";
 import { getLevelTitle, RARITY_COLORS } from "@/constants";
 import type { Badge } from "@/types";
@@ -68,7 +58,7 @@ const RARITY_BORDER: Record<Badge["rarity"], string> = {
 
 // ─── Heatmap helpers ──────────────────────────────────────────────────────────
 
-const HEATMAP_DAYS = 91; // ~3 months
+const HEATMAP_DAYS = 91;
 
 function buildHeatmapData() {
   const today = new Date();
@@ -156,20 +146,15 @@ function HabitHeatmap() {
 
   const maxWeekXP = Math.max(...weeks.map((w) => w.weekXP), 1);
 
-  // Build 13×7 grid (week columns × day rows)
-  // cells[0] is the oldest day; pad the first column so day 0 aligns to its weekday
   const firstDate = new Date(cells[0].date);
-  const startDow = firstDate.getDay(); // 0=Sun
+  const startDow = firstDate.getDay();
 
-  // Flat padded array: nulls for padding + cells
   const padded: (typeof cells[0] | null)[] = [
     ...Array(startDow).fill(null),
     ...cells,
   ];
-  // Pad end to fill 13 full weeks
   while (padded.length < 13 * 7) padded.push(null);
 
-  // Detect month changes for labels
   const monthLabels: { col: number; label: string }[] = [];
   for (let col = 0; col < 13; col++) {
     const cell = padded[col * 7];
@@ -191,7 +176,6 @@ function HabitHeatmap() {
           <h3 className="font-display font-semibold">Habit Heatmap</h3>
           <p className="text-xs text-muted-foreground">Last 3 months</p>
         </div>
-        {/* Legend */}
         <div className="flex items-center gap-1.5">
           <span className="text-[9px] text-muted-foreground">Less</span>
           {[0, 0.25, 0.5, 0.75, 1].map((r, i) => (
@@ -205,7 +189,6 @@ function HabitHeatmap() {
         </div>
       </div>
 
-      {/* Monthly summary row */}
       <div className="flex gap-2 mb-4">
         {monthlyStats.slice(-3).map((m) => (
           <div
@@ -224,9 +207,7 @@ function HabitHeatmap() {
         ))}
       </div>
 
-      {/* Grid */}
       <div className="relative" style={{ touchAction: "none" }}>
-        {/* Month labels row */}
         <div className="flex mb-1" style={{ paddingLeft: 18 }}>
           {Array.from({ length: 13 }, (_, col) => {
             const ml = monthLabels.find((m) => m.col === col);
@@ -239,7 +220,6 @@ function HabitHeatmap() {
         </div>
 
         <div className="flex gap-0">
-          {/* Day-of-week labels */}
           <div className="flex flex-col justify-between" style={{ width: 18, paddingTop: 1, paddingBottom: 1 }}>
             {DOW_LABELS.map((d, i) => (
               <div key={i} className="flex items-center" style={{ height: "calc(100% / 7)" }}>
@@ -248,7 +228,6 @@ function HabitHeatmap() {
             ))}
           </div>
 
-          {/* 13 columns of 7 cells each */}
           <div className="flex flex-1 gap-[3px]">
             {Array.from({ length: 13 }, (_, col) => (
               <div key={col} className="flex flex-col flex-1 gap-[3px]">
@@ -286,7 +265,6 @@ function HabitHeatmap() {
           </div>
         </div>
 
-        {/* Tooltip */}
         {tooltip && (
           <div
             className="absolute z-20 pointer-events-none"
@@ -307,7 +285,6 @@ function HabitHeatmap() {
                 {tooltip.completed}/{tooltip.total} habits · +{tooltip.xp} XP
               </p>
             </div>
-            {/* Arrow */}
             <div
               className="mx-auto mt-0.5"
               style={{
@@ -322,7 +299,6 @@ function HabitHeatmap() {
         )}
       </div>
 
-      {/* Weekly XP bars */}
       <div className="mt-4">
         <p className="text-[10px] text-muted-foreground mb-2">Weekly XP</p>
         <div className="flex items-end gap-[3px]" style={{ height: 40 }}>
@@ -355,7 +331,6 @@ function HabitHeatmap() {
   );
 }
 
-// Build last-30-days XP data
 function buildXPHistory() {
   const today = new Date();
   return Array.from({ length: 30 }, (_, i) => {
@@ -372,7 +347,6 @@ function buildXPHistory() {
   });
 }
 
-// Custom recharts tooltip
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
@@ -385,7 +359,6 @@ function CustomTooltip({ active, payload, label }: any) {
 
 export default function Profile() {
   const navigate = useNavigate();
-  const { user: authUser, logout } = useAuth();
   const user = getUser();
   const habits = getHabits();
   const sessions = getTimerSessions();
@@ -394,84 +367,19 @@ export default function Profile() {
   const [copied, setCopied] = useState(false);
   const shareCardRef = useRef<HTMLDivElement>(null);
 
-  // Edit profile state
-  const [editOpen, setEditOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [editName, setEditName] = useState(authUser?.fullName || authUser?.username || user.name);
-  const [editUsername, setEditUsername] = useState(authUser?.username || "");
-  const [editBio, setEditBio] = useState("");
-  const [editPhone, setEditPhone] = useState("");
-  const [editAvatar, setEditAvatar] = useState<File | null>(null);
-  const [editAvatarPreview, setEditAvatarPreview] = useState<string | null>(null);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-
-  const handleLogout = async () => {
-    await signOut();
-    logout();
-    navigate("/login", { replace: true });
-  };
-
-  const openEdit = async () => {
-    if (authUser) {
-      const profile = await fetchProfile(authUser.id);
-      if (profile) {
-        setEditName(profile.full_name || authUser.fullName || user.name);
-        setEditUsername(profile.username || authUser.username || "");
-        setEditBio(profile.bio || "");
-        setEditPhone(profile.phone || "");
-      }
-    }
-    setEditOpen(true);
-  };
-
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setEditAvatar(file);
-    setEditAvatarPreview(URL.createObjectURL(file));
-  };
-
-  const handleSaveProfile = async () => {
-    if (!authUser) return;
-    setSaving(true);
-    let avatarUrl = authUser.avatarUrl;
-    try {
-      if (editAvatar) {
-        avatarUrl = await uploadAvatar(authUser.id, editAvatar);
-      }
-      await updateProfile(authUser.id, {
-        full_name: editName,
-        username: editUsername,
-        bio: editBio,
-        phone: editPhone,
-        avatar_url: avatarUrl,
-      });
-      toast.success("Profile updated!");
-      setEditOpen(false);
-      setEditAvatar(null);
-      setEditAvatarPreview(null);
-    } catch (err: any) {
-      toast.error(err.message ?? "Failed to save profile.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const xpHistory = buildXPHistory();
   const totalXPLast30 = xpHistory.reduce((s, d) => s + d.xp, 0);
   const bestDayXP = Math.max(...xpHistory.map((d) => d.xp));
   const activeDays = xpHistory.filter((d) => d.xp > 0).length;
 
-  // Stats derived
-  const totalSessions = sessions.length + 67; // Mock historical
+  const totalSessions = sessions.length + 67;
   const focusMinutes =
-    sessions.reduce((s, sess) => s + Math.floor(sess.actualSeconds / 60), 0) + 1840; // + mock
+    sessions.reduce((s, sess) => s + Math.floor(sess.actualSeconds / 60), 0) + 1840;
   const focusHours = Math.floor(focusMinutes / 60);
   const totalCompletions = habits.reduce((s, h) => s + h.totalCompletions, 0);
   const bestStreak = user.longestStreak;
   const avgDailyXP = Math.round(totalXPLast30 / 30);
 
-  // Sort badges by rarity
   const sortedBadges = [...user.badges].sort(
     (a, b) => RARITY_ORDER[a.rarity] - RARITY_ORDER[b.rarity]
   );
@@ -504,25 +412,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
           <ArrowLeft className="w-4 h-4" />
         </button>
         <h1 className="text-xl font-display font-bold">Profile</h1>
-        <div className="ml-auto flex items-center gap-2">
-          {authUser && (
-            <button
-              onClick={openEdit}
-              className="w-9 h-9 rounded-xl glass flex items-center justify-center text-muted-foreground hover:text-foreground transition-all"
-              title="Edit profile"
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
-          )}
-          <button
-            onClick={handleLogout}
-            className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:opacity-80"
-            style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171" }}
-            title="Log out"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
       </div>
 
       {/* Hero card */}
@@ -535,7 +424,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
             boxShadow: "0 0 40px rgba(147,51,234,0.15), 0 0 80px rgba(34,211,238,0.06)",
           }}
         >
-          {/* Background glow blobs */}
           <div
             className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20 pointer-events-none"
             style={{ background: "radial-gradient(circle, #9333ea, transparent)" }}
@@ -546,7 +434,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
           />
 
           <div className="relative flex items-center gap-4">
-            {/* Avatar + level ring */}
             <div className="relative flex-shrink-0">
               <CircularProgress
                 percentage={levelPct}
@@ -562,7 +449,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
                   style={{ boxShadow: "0 0 16px rgba(147,51,234,0.5)" }}
                 />
               </CircularProgress>
-              {/* Level badge */}
               <div
                 className="absolute -bottom-1 -right-1 min-w-[28px] h-7 rounded-full flex items-center justify-center text-xs font-black text-black px-1.5"
                 style={{
@@ -574,7 +460,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
               </div>
             </div>
 
-            {/* Info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-0.5">
                 <h2 className="text-lg font-display font-bold text-foreground truncate">
@@ -592,7 +477,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
             </div>
           </div>
 
-          {/* Quick stats row */}
           <div className="grid grid-cols-3 gap-2 mt-4">
             {[
               { icon: <Flame className="w-3.5 h-3.5 text-forge-flame" />, value: `${user.streak}d`, label: "Streak" },
@@ -630,7 +514,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
             </div>
           </div>
 
-          {/* Mini stats */}
           <div className="flex gap-4 mb-4 mt-3">
             {[
               { label: "Avg/day", value: `${avgDailyXP} XP`, color: "#a78bfa" },
@@ -828,7 +711,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
             boxShadow: "0 0 30px rgba(147,51,234,0.15)",
           }}
         >
-          {/* Decorative glow */}
           <div
             className="absolute top-0 right-0 w-48 h-48 rounded-full opacity-10 pointer-events-none"
             style={{ background: "radial-gradient(circle, #9333ea, transparent)", transform: "translate(30%,-30%)" }}
@@ -838,10 +720,8 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
             style={{ background: "radial-gradient(circle, #22d3ee, transparent)", transform: "translate(-30%,30%)" }}
           />
 
-          {/* Neon line top */}
           <div className="neon-line mb-4" />
 
-          {/* Card header */}
           <div className="flex items-center gap-3 mb-4">
             <img
               src={user.avatar}
@@ -865,7 +745,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
             </div>
           </div>
 
-          {/* Stats grid */}
           <div className="grid grid-cols-2 gap-2 mb-4">
             {[
               { emoji: "🔥", label: "Best Streak", value: `${bestStreak} days` },
@@ -886,7 +765,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
             ))}
           </div>
 
-          {/* Badges row */}
           <div className="flex items-center gap-2 mb-4">
             <p className="text-xs text-muted-foreground flex-shrink-0">Badges earned:</p>
             <div className="flex gap-1.5 flex-wrap">
@@ -909,7 +787,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
           </p>
         </div>
 
-        {/* Action buttons */}
         <div className="flex gap-3 mt-3">
           <button
             onClick={handleCopyShare}
@@ -951,105 +828,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
         </div>
       </div>
 
-      {/* Edit Profile Modal */}
-      {editOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-5"
-          style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(10px)" }}
-        >
-          <div
-            className="w-full max-w-sm rounded-3xl p-6 relative"
-            style={{
-              background: "rgba(13,13,26,0.98)",
-              border: "1px solid rgba(147,51,234,0.35)",
-              boxShadow: "0 0 60px rgba(147,51,234,0.15)",
-            }}
-          >
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-lg font-display font-bold">Edit Profile</h3>
-              <button
-                onClick={() => setEditOpen(false)}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground"
-                style={{ background: "rgba(255,255,255,0.06)" }}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Avatar upload */}
-            <div className="flex justify-center mb-5">
-              <div className="relative">
-                <img
-                  src={editAvatarPreview || authUser?.avatarUrl || user.avatar}
-                  alt="Avatar"
-                  className="w-20 h-20 rounded-full object-cover"
-                  style={{ border: "2px solid rgba(147,51,234,0.5)", boxShadow: "0 0 16px rgba(147,51,234,0.3)" }}
-                />
-                <button
-                  onClick={() => avatarInputRef.current?.click()}
-                  className="absolute bottom-0 right-0 w-7 h-7 rounded-full flex items-center justify-center text-white transition-all hover:scale-110"
-                  style={{ background: "linear-gradient(135deg,#9333ea,#7c3aed)", boxShadow: "0 0 10px rgba(147,51,234,0.5)" }}
-                >
-                  <Camera className="w-3.5 h-3.5" />
-                </button>
-                <input
-                  ref={avatarInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  className="hidden"
-                  onChange={handleAvatarChange}
-                />
-              </div>
-            </div>
-
-            {/* Fields */}
-            <div className="space-y-3 mb-5">
-              {[
-                { label: "Display Name", value: editName, onChange: setEditName, placeholder: "Your full name" },
-                { label: "Username", value: editUsername, onChange: setEditUsername, placeholder: "@username" },
-                { label: "Phone (optional)", value: editPhone, onChange: setEditPhone, placeholder: "+1 234 567 8900" },
-                { label: "Bio (optional)", value: editBio, onChange: setEditBio, placeholder: "Tell something about yourself…" },
-              ].map((f) => (
-                <div key={f.label}>
-                  <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">{f.label}</label>
-                  <input
-                    type="text"
-                    value={f.value}
-                    onChange={(e) => f.onChange(e.target.value)}
-                    placeholder={f.placeholder}
-                    className="w-full bg-transparent text-sm text-foreground placeholder-muted-foreground outline-none px-4 py-3 rounded-xl"
-                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)" }}
-                  />
-                </div>
-              ))}
-
-              {/* Email — read-only */}
-              {authUser && (
-                <div>
-                  <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">Email</label>
-                  <div
-                    className="w-full text-sm text-muted-foreground px-4 py-3 rounded-xl"
-                    style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-                  >
-                    {authUser.email}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <button
-              onClick={handleSaveProfile}
-              disabled={saving}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-bold text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-60"
-              style={{ background: "linear-gradient(135deg,#9333ea,#7c3aed)", boxShadow: "0 0 20px rgba(147,51,234,0.35)" }}
-            >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {saving ? "Saving…" : "Save Profile"}
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Badge Detail Modal */}
       {selectedBadge && (
         <div
@@ -1065,7 +843,6 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Glow backdrop */}
             <div
               className="absolute inset-0 pointer-events-none rounded-3xl"
               style={{

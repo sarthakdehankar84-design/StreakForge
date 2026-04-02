@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Flame, Zap, Trophy, ChevronRight, Star, TrendingUp, Swords, ShieldCheck } from "lucide-react";
 import { getUser, getHabits, completeHabit, isHabitCompletedToday, todayStr, getMissedStreakInfo } from "@/lib/storage";
-import { useAuth } from "@/hooks/useAuth";
 import { mockDailyStats } from "@/lib/mockData";
 import type { User, Habit } from "@/types";
 import CircularProgress from "@/components/features/CircularProgress";
@@ -14,7 +13,6 @@ import ShieldModal from "@/components/features/ShieldModal";
 import DailyChallenges from "@/components/features/DailyChallenges";
 
 export default function Dashboard() {
-  const { user: authUser } = useAuth();
   const [user, setUser] = useState<User>(getUser());
   const [habits, setHabits] = useState<Habit[]>(getHabits());
   const [toast, setToast] = useState<{ xp: number; name: string } | null>(null);
@@ -102,7 +100,7 @@ export default function Dashboard() {
           </div>
           <Link to="/profile" className="relative">
             <img
-              src={authUser?.avatarUrl || user.avatar}
+              src={user.avatar}
               alt={user.name}
               className="w-11 h-11 rounded-full border-2 border-forge-purple/60 object-cover"
               style={{ boxShadow: "0 0 12px rgba(147, 51, 234, 0.4)" }}
