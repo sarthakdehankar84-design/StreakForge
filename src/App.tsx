@@ -50,13 +50,13 @@ function AppRoutes() {
           element={user ? <Navigate to="/" replace /> : <Login />}
         />
 
-        {/* Login removed */}
-<Route path="/" element={<Dashboard />} />
-<Route path="/habits" element={<Habits />} />
-<Route path="/timer" element={<Timer />} />
-<Route path="/leaderboard" element={<Leaderboard />} />
-<Route path="/profile" element={<Profile />} />
-<Route path="/skills" element={<SkillTree />} />
+        {/* Protected */}
+<Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+<Route path="/habits" element={<ProtectedRoute><Habits /></ProtectedRoute>} />
+<Route path="/timer" element={<ProtectedRoute><Timer /></ProtectedRoute>} />
+<Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
+<Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+<Route path="/skills" element={<ProtectedRoute><SkillTree /></ProtectedRoute>} />
 <Route path="*" element={<NotFound />} />
 </Routes>
 
