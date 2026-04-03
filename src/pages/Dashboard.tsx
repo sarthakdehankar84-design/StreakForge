@@ -1,9 +1,12 @@
+// --- Dashboard.tsx ---
+
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Flame, Zap, Trophy, ChevronRight, Star, TrendingUp, Swords, ShieldCheck } from "lucide-react";
-import { getUser, getHabits, completeHabit, isHabitCompletedToday, todayStr, getMissedStreakInfo } from "@/lib/storage";
+// import { getUser, getHabits, completeHabit, isHabitCompletedToday, todayStr, getMissedStreakInfo } from "@/lib/storage"; // <-- Ab inmein se kuch functions ko Firebase se update karna padega
+import { getHabits, completeHabit, isHabitCompletedToday, todayStr, getMissedStreakInfo } from "@/lib/storage"; // Temporary: local storage se habits
 import { mockDailyStats } from "@/lib/mockData";
-import type { User, Habit } from "@/types";
+import type { Habit } from "@/types"; // User type ab FirebaseUser aur userProfile se handle hoga
 import CircularProgress from "@/components/features/CircularProgress";
 import XPBar from "@/components/features/XPBar";
 import HabitCard from "@/components/features/HabitCard";
@@ -12,198 +15,150 @@ import LevelUpOverlay from "@/components/features/LevelUpOverlay";
 import ShieldModal from "@/components/features/ShieldModal";
 import DailyChallenges from "@/components/features/DailyChallenges";
 
-export default function Dashboard() {
-  const [user, setUser] = useState<User>(getUser());
-  const [habits, setHabits] = useState<Habit[]>(getHabits());
+// --- START: Firebase Imports and DashboardProps Interface ---
+// Firebase types ko import karein
+import { User as FirebaseAuthUser } from 'firebase/auth'; // Firebase Authentication se user
+import { Firestore } from 'firebase/firestore';     // Firestore database instance
+import { Auth } from 'firebase/auth';             // Firebase Auth instance
+
+// Yeh interface batata hai ki Dashboard component ko kaunse props milenge
+interface DashboardProps {
+  firebaseUser: FirebaseAuthUser; // Firebase Authentication se aaya hua user object
+  userProfile: any;           // Firestore se fetch kiya hua app-specific user profile (jismein xp, level, streak honge)
+  db: Firestore;      // Firestore database instance
+  auth: Auth;         // Firebase Authentication instance
+}
+// --- END: Firebase Imports and DashboardProps Interface ---
+
+
+// Ab Dashboard component ko props (firebaseUser, userProfile, db, auth) milenge main.tsx se
+export default function Dashboard({ firebaseUser, userProfile, db, auth }: DashboardProps) {
+
+  // const [localAppUser, setLocalAppUser] = useState<LocalAppUser>(getUser()); // <-- YE LINE HATANI HAI
+  const [habits, setHabits] = useState<Habit[]>(getHabits()); // Habits abhi bhi local storage se aa rahi hain
   const [toast, setToast] = useState<{ xp: number; name: string } | null>(null);
   const [levelUp, setLevelUp] = useState<{ level: number } | null>(null);
   const [shieldModal, setShieldModal] = useState<{ streakAtRisk: number } | null>(null);
+
+  // --- START: Firebase User Effect (Removed from here, now in main.tsx) ---
+  // localAppUser ki jagah userProfile use karein
+  // --- END: Firebase User Effect ---
+
 
   // Check for missed streak once per day session
   useEffect(() => {
     const sessionKey = `sf_shield_check_${todayStr()}`;
     if (!sessionStorage.getItem(sessionKey)) {
       sessionStorage.setItem(sessionKey, "1");
-      const { missed, streakAtRisk } = getMissedStreakInfo();
+      // getMissedStreakInfo ko userProfile ke saath update karna padega
+      const { missed, streakAtRisk } = getMissedStreakInfo(); // Abhi bhi local storage se, TODO: Firestore se karein
       if (missed && streakAtRisk > 0) {
-        setTimeout(() => setShieldModal({ streakAtRisk }), 800);
+        setTimeout(() => setShieldModal({ streakAtRisk }), 1200);
       }
     }
-  }, []);
+  }, []); // Dependencies ko review karein
 
-  const todayStats = mockDailyStats[mockDailyStats.length - 1];
-  const completedToday = habits.filter(h => isHabitCompletedToday(h)).length;
+
+  // Calculations ab userProfile ka use karengi
+  // userProfile mein xp, level, streak, rank, shields, badges honi chahiye jo main.tsx mein setDoc mein hain
+  const todayCompleted = habits.filter(isHabitCompletedToday).length; // Habits abhi local storage se
   const totalHabits = habits.length;
-  const completionPct = totalHabits > 0 ? Math.round((completedToday / totalHabits) * 100) : 0;
+  const completionPct = totalHabits > 0 ? Math.round((todayCompleted / totalHabits) * 100) : 0;
 
-  const xpToNextLevel = user.level * 100;
-  const xpProgress = Math.min(user.xp % xpToNextLevel, xpToNextLevel);
+  const weekStats = mockDailyStats.slice(-7);
+  const weekXP = weekStats.reduce((s, d) => s + d.xpEarned, 0); // Isko bhi userProfile se update karna hoga
+  const shields = userProfile.shields ?? 0; // Ab userProfile se
 
-  const handleComplete = (habit: Habit) => {
-    const prevLevel = user.level;
-    const result = completeHabit(habit.id);
-    if (!result) return;
-    const updated = getUser();
-    setUser(updated);
-    setHabits(getHabits());
-    setToast({ xp: result.xpEarned, name: habit.name });
-    if (updated.level > prevLevel) {
-      setTimeout(() => setLevelUp({ level: updated.level }), 600);
+  const handleComplete = (habitId: string) => {
+    const result = completeHabit(habitId); // Abhi bhi local storage use kar raha hai
+    if (result.xpEarned > 0) {
+      setHabits(getHabits());
+      // TODO: Yahan par Firestore mein userProfile.xp aur other fields ko update karein
+      // aur userProfile state ko refresh karein (ya phir main.tsx mein onAuthStateChanged listener handle karega)
+      // setToast({ xp: result.xpEarned, name: result.habit.name });
+      if (result.leveledUp) {
+        setTimeout(() => setLevelUp({ level: result.newLevel }), 600);
+      }
     }
   };
 
-  const handleShieldUsed = () => {
-    setUser(getUser());
-    setShieldModal(null);
-  };
-
-  const greetingHour = new Date().getHours();
-  const greeting = greetingHour < 12 ? "Good morning" : greetingHour < 17 ? "Good afternoon" : "Good evening";
+  const dayNames = ["S", "M", "T", "W", "T", "F", "S"];
+  const today = new Date();
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(today.getDate() - 6 + i);
+    return {
+      day: dayNames[d.getDay()],
+      date: d.toISOString().split("T")[0],
+      isToday: d.toISOString().split("T")[0] === todayStr(),
+    };
+  });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-purple-950/30 to-gray-950 pb-nav">
-      {toast && (
-        <XPToast xp={toast.xp} habitName={toast.name} onDone={() => setToast(null)} />
-      )}
+    <div className="min-h-screen bg-gradient-to-b from-[#0a0a0f] via-[#0d0d1a] to-[#0a0a0f] pb-nav">
       {levelUp && (
-        <LevelUpOverlay level={levelUp.level} onDone={() => setLevelUp(null)} />
+        <LevelUpOverlay
+          level={levelUp.level}
+          onDismiss={() => setLevelUp(null)}
+        />
       )}
       {shieldModal && (
         <ShieldModal
-          streakAtRisk={shieldModal.streakAtRisk}
-          onUseShield={handleShieldUsed}
-          onClose={() => setShieldModal(null)}
+          missedStreak={shieldModal.streakAtRisk}
+          onUsed={() => {
+            setShieldModal(null);
+            // TODO: userProfile update karein from Firestore
+            // setUser(getUser()); // <-- HATANA HOGA
+          }}
+          onDecline={() => setShieldModal(null)}
+        />
+      )}
+      {toast && (
+        <XPToast
+          xp={toast.xp}
+          habitName={toast.name}
+          onDone={() => setToast(null)}
         />
       )}
 
       {/* Header */}
-      <div className="px-4 pt-12 pb-4">
-        <div className="flex items-center justify-between mb-1">
+      <div className="px-4 pt-14 pb-4">
+        <div className="flex items-center justify-between">
           <div>
-            <p className="text-gray-400 text-sm font-medium">{greeting},</p>
-            <h1 className="text-white text-2xl font-bold tracking-tight">{user.name} 👋</h1>
+            <p className="text-muted-foreground text-sm">Welcome back,</p>
+            {/* userProfile.name ka use karein */}
+            <h1 className="text-2xl font-display font-bold text-foreground">
+              {userProfile.name.split(" ")[0]} 👋
+            </h1>
           </div>
-          <Link to="/profile">
-            <div className="w-12 h-12 rounded-2xl overflow-hidden ring-2 ring-purple-500/40 hover:ring-purple-400 transition-all">
-              <img
-                src={user.avatar || "https://api.dicebear.com/7.x/avataaars/svg?seed=streak"}
-                alt="avatar"
-                className="w-full h-full object-cover"
-              />
+          <Link to="/profile" className="relative">
+            {/* userProfile.avatar ka use karein */}
+            <img
+              src={userProfile.avatar}
+              alt={userProfile.name}
+              className="w-11 h-11 rounded-full border-2 border-forge-purple/60 object-cover"
+              style={{ boxShadow: "0 0 12px rgba(147, 51, 234, 0.4)" }}
+            />
+            {/* userProfile.level ka use karein */}
+            <div className="absolute -bottom-1 -right-1 bg-forge-gold text-[9px] font-black text-black rounded-full w-5 h-5 flex items-center justify-center">
+              {userProfile.level}
             </div>
           </Link>
         </div>
 
         {/* XP Bar */}
-        <XPBar xp={xpProgress} maxXp={xpToNextLevel} level={user.level} />
-      </div>
-
-      {/* Stats Row */}
-      <div className="px-4 mb-4">
-        <div className="grid grid-cols-4 gap-2">
-          <div className="bg-white/5 rounded-2xl p-3 text-center border border-white/10">
-            <Flame className="w-5 h-5 text-orange-400 mx-auto mb-1" />
-            <p className="text-white font-bold text-lg leading-none">{user.streak}</p>
-            <p className="text-gray-500 text-xs mt-1">Streak</p>
-          </div>
-          <div className="bg-white/5 rounded-2xl p-3 text-center border border-white/10">
-            <Zap className="w-5 h-5 text-yellow-400 mx-auto mb-1" />
-            <p className="text-white font-bold text-lg leading-none">{user.xp}</p>
-            <p className="text-gray-500 text-xs mt-1">Total XP</p>
-          </div>
-          <div className="bg-white/5 rounded-2xl p-3 text-center border border-white/10">
-            <Trophy className="w-5 h-5 text-purple-400 mx-auto mb-1" />
-            <p className="text-white font-bold text-lg leading-none">#{user.rank}</p>
-            <p className="text-gray-500 text-xs mt-1">Rank</p>
-          </div>
-          <div className="bg-white/5 rounded-2xl p-3 text-center border border-white/10">
-            <ShieldCheck className="w-5 h-5 text-blue-400 mx-auto mb-1" />
-            <p className="text-white font-bold text-lg leading-none">{user.shields ?? 0}</p>
-            <p className="text-gray-500 text-xs mt-1">Shields</p>
-          </div>
+        <div className="mt-4 glass rounded-2xl p-4">
+          {/* XPBar ko userProfile pass karein */}
+          <XPBar user={userProfile} />
         </div>
       </div>
 
-      {/* Today's Progress */}
-      <div className="px-4 mb-4">
-        <div className="bg-gradient-to-br from-purple-900/40 to-blue-900/30 rounded-3xl p-4 border border-purple-500/20">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h2 className="text-white font-bold text-lg">Today's Progress</h2>
-              <p className="text-gray-400 text-sm">{completedToday} of {totalHabits} habits done</p>
-            </div>
-            <CircularProgress value={completionPct} size={64} strokeWidth={6} color="#a855f7" />
-          </div>
-
-          {/* Habit mini-cards */}
-          <div className="flex gap-2 flex-wrap">
-            {habits.slice(0, 4).map(habit => {
-              const done = isHabitCompletedToday(habit);
-              return (
-                <div
-                  key={habit.id}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
-                    done
-                      ? "bg-green-500/20 text-green-300 border border-green-500/30"
-                      : "bg-white/5 text-gray-400 border border-white/10"
-                  }`}
-                >
-                  <span>{habit.icon}</span>
-                  <span>{habit.name}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Daily Challenges */}
-      <div className="px-4 mb-4">
-        <DailyChallenges onXPEarned={() => setUser(getUser())} />
-      </div>
-
-      {/* Today's Habits */}
-      <div className="px-4 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-white font-bold text-lg flex items-center gap-2">
-            <Star className="w-5 h-5 text-yellow-400" />
-            Today's Habits
-          </h2>
-          <Link to="/habits" className="text-purple-400 text-sm flex items-center gap-1 hover:text-purple-300 transition-colors">
-            View all <ChevronRight className="w-4 h-4" />
-          </Link>
-        </div>
-        <div className="space-y-3">
-          {habits.slice(0, 4).map(habit => (
-            <HabitCard
-              key={habit.id}
-              habit={habit}
-              onComplete={handleComplete}
-              completed={isHabitCompletedToday(habit)}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Quick Links */}
-      <div className="px-4 mb-4">
-        <div className="grid grid-cols-2 gap-3">
-          <Link to="/timer">
-            <div className="bg-gradient-to-br from-blue-900/40 to-cyan-900/30 rounded-2xl p-4 border border-blue-500/20 hover:border-blue-400/40 transition-all">
-              <TrendingUp className="w-6 h-6 text-blue-400 mb-2" />
-              <p className="text-white font-semibold text-sm">Focus Timer</p>
-              <p className="text-gray-500 text-xs mt-0.5">Start a session</p>
-            </div>
-          </Link>
-          <Link to="/leaderboard">
-            <div className="bg-gradient-to-br from-orange-900/40 to-red-900/30 rounded-2xl p-4 border border-orange-500/20 hover:border-orange-400/40 transition-all">
-              <Swords className="w-6 h-6 text-orange-400 mb-2" />
-              <p className="text-white font-semibold text-sm">Leaderboard</p>
-              <p className="text-gray-500 text-xs mt-0.5">#{user.rank} globally</p>
-            </div>
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
-}
+      {/* Stats row — 4 cols including shield */}
+      <div className="px-4 grid grid-cols-4 gap-2 mb-4">
+        {[
+          { icon: <Flame className="w-4 h-4 text-forge-flame" />, label: "Streak", value: `${userProfile.streak}d`, color: "#f97316" },
+          { icon: <Zap className="w-4 h-4 text-forge-gold" />, label: "Week XP", value: userProfile.xp.toLocaleString(), color: "#f59e0b", small: true }, // userProfile.xp ka use kiya
+          { icon: <Trophy className="w-4 h-4 text-forge-cyan" />, label: "Rank", value: `#${userProfile.rank}`, color: "#22d3ee" }, // userProfile.rank ka use kiya
+        ].map((stat) => (
+          <div key={stat.label} className="glass rounded-2xl p-3 flex flex-colNo response
+            
