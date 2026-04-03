@@ -101,7 +101,7 @@ export default function Dashboard() {
             </div>
           </Link>
         </div>
-        <XPBar xp={user.xp} level={user.level} />
+        <XPBar user={user} />
       </div>
 
       {/* Stats Row */}
