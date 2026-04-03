@@ -106,9 +106,6 @@ function computeProgress(challenge: Omit<DailyChallenge, "progress" | "completed
 /** Get today's 3 daily challenges with live progress */
 export function getDailyChallenges(): DailyChallenge[] {
   const today = todayStr();
-  const store = loadStore();
-
-
   const templates = pickChallenges(today);
   return templates.map((tmpl) => {
     const progress = computeProgress(tmpl);
