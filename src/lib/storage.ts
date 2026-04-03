@@ -1,59 +1,31 @@
 import type { Habit, User, TimerSession, ChatMessage } from "@/types";
 import { mockUser, mockHabits, initialCoachMessages } from "@/lib/mockData";
 
-const KEYS = {
-  USER: "sf_user",
-  HABITS: "sf_habits",
-  TIMER_SESSIONS: "sf_timer_sessions",
-  CHAT_MESSAGES: "sf_chat_messages",
-};
-
 // ---------------------------------------------------------------------------
-// User — never auto-hydrates from localStorage; returns mock baseline only
+// All persistence is disabled. No localStorage reads or writes occur.
+// Every getter returns a fresh copy of the mock baseline.
+// Every saver is a deliberate no-op.
 // ---------------------------------------------------------------------------
-export const getUser = (): User => {
-  return { ...mockUser, shields: mockUser.shields ?? 1 };
-};
 
-export const saveUser = (user: User): void => {
-  localStorage.setItem(KEYS.USER, JSON.stringify(user));
-};
+export const getUser = (): User => ({ ...mockUser, shields: mockUser.shields ?? 1 });
 
-// ---------------------------------------------------------------------------
-// Habits — never auto-hydrates from localStorage; returns mock baseline only
-// ---------------------------------------------------------------------------
-export const getHabits = (): Habit[] => {
-  return mockHabits.map((h) => ({ ...h }));
-};
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const saveUser = (_user: User): void => { /* no-op: persistence disabled */ };
 
-export const saveHabits = (habits: Habit[]): void => {
-  localStorage.setItem(KEYS.HABITS, JSON.stringify(habits));
-};
+export const getHabits = (): Habit[] => mockHabits.map((h) => ({ ...h }));
 
-// ---------------------------------------------------------------------------
-// Timer Sessions — returns empty array by default (no auto-hydration)
-// ---------------------------------------------------------------------------
-export const getTimerSessions = (): TimerSession[] => {
-  return [];
-};
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const saveHabits = (_habits: Habit[]): void => { /* no-op: persistence disabled */ };
 
-export const saveTimerSession = (session: TimerSession): void => {
-  localStorage.setItem(
-    KEYS.TIMER_SESSIONS,
-    JSON.stringify([session])
-  );
-};
+export const getTimerSessions = (): TimerSession[] => [];
 
-// ---------------------------------------------------------------------------
-// Chat Messages — returns initial coach messages; no localStorage read
-// ---------------------------------------------------------------------------
-export const getChatMessages = (): ChatMessage[] => {
-  return initialCoachMessages.map((m) => ({ ...m }));
-};
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const saveTimerSession = (_session: TimerSession): void => { /* no-op: persistence disabled */ };
 
-export const saveChatMessages = (messages: ChatMessage[]): void => {
-  localStorage.setItem(KEYS.CHAT_MESSAGES, JSON.stringify(messages));
-};
+export const getChatMessages = (): ChatMessage[] => initialCoachMessages.map((m) => ({ ...m }));
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const saveChatMessages = (_messages: ChatMessage[]): void => { /* no-op: persistence disabled */ };
 
 // ---------------------------------------------------------------------------
 // Utility
@@ -61,7 +33,7 @@ export const saveChatMessages = (messages: ChatMessage[]): void => {
 export const todayStr = (): string => new Date().toISOString().split("T")[0];
 
 // ---------------------------------------------------------------------------
-// Habit completion — operates on in-memory state passed in; no LS reads
+// Habit completion — pure in-memory; no storage reads or writes
 // ---------------------------------------------------------------------------
 export const completeHabit = (
   habitId: string
@@ -77,7 +49,6 @@ export const completeHabit = (
     habit.completedDates.push(today);
     habit.totalCompletions += 1;
 
-    // Recalculate streak
     let streak = 0;
     const d = new Date();
     while (habit.completedDates.includes(d.toISOString().split("T")[0])) {
@@ -86,9 +57,7 @@ export const completeHabit = (
     }
     habit.streak = streak;
     habit.bestStreak = Math.max(habit.bestStreak, streak);
-    habits[idx] = habit;
 
-    // Award XP to user (from mock baseline — no LS read)
     const user = getUser();
     user.xp += habit.xpPerCompletion;
     user.totalXp += habit.xpPerCompletion;
@@ -103,23 +72,20 @@ export const completeHabit = (
     user.streak = Math.max(user.streak, maxHabitStreak);
     user.longestStreak = Math.max(user.longestStreak, user.streak);
 
-    // Shield milestone — write-only, never read
     if (user.streak > 0 && user.streak % 7 === 0) {
       user.shields = (user.shields ?? 0) + 1;
     }
 
-    saveUser(user);
+    // saveUser intentionally omitted — no persistence
     return { habit, xpEarned: habit.xpPerCompletion, leveledUp, newLevel: user.level };
   }
 
   return { habit, xpEarned: 0, leveledUp: false, newLevel: getUser().level };
 };
 
-export const isHabitCompletedToday = (habit: Habit): boolean => {
-  return habit.completedDates.includes(todayStr());
-};
+export const isHabitCompletedToday = (habit: Habit): boolean =>
+  habit.completedDates.includes(todayStr());
 
-/** Streak-miss check — uses mock baseline; no LS hydration */
 export const getMissedStreakInfo = (): { missed: boolean; streakAtRisk: number } => {
   const user = getUser();
   if (user.streak === 0) return { missed: false, streakAtRisk: 0 };
@@ -134,11 +100,9 @@ export const getMissedStreakInfo = (): { missed: boolean; streakAtRisk: number }
   return { missed, streakAtRisk: user.streak };
 };
 
-/** Use a shield token — write-only, operates on current runtime state */
 export const useShield = (): boolean => {
   const user = getUser();
   if ((user.shields ?? 0) <= 0) return false;
-  user.shields = (user.shields ?? 1) - 1;
-  saveUser(user);
+  // No write — shield use is session-only
   return true;
 };

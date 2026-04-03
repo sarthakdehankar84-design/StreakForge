@@ -1,4 +1,4 @@
-import { getHabits, getTimerSessions, getUser, saveUser, todayStr } from "@/lib/storage";
+import { getHabits, getTimerSessions, getUser, todayStr } from "@/lib/storage";
 
 export interface DailyChallenge {
   id: string;
@@ -28,7 +28,6 @@ const CHALLENGE_POOL: Omit<DailyChallenge, "progress" | "completed" | "rewardCla
   { id: "c12", title: "Daily Devotion", description: "Earn 200 XP from habits today", icon: "💎", type: "xp_earned", target: 200, xpReward: 100 },
 ];
 
-const STORAGE_KEY = "sf_daily_challenges";
 
 /** Seeded pseudo-random — deterministic per date so same 3 challenges all day */
 function seededRandom(seed: number): () => number {
@@ -54,24 +53,8 @@ function pickChallenges(dateStr: string): Omit<DailyChallenge, "progress" | "com
   return picked;
 }
 
-interface StoredChallenge {
-  id: string;
-  rewardClaimed: boolean;
-}
-
-interface ChallengeStore {
-  date: string;
-  challenges: StoredChallenge[];
-}
-
-/** Return an empty store — no localStorage read */
-function loadStore(): ChallengeStore {
-  return { date: "", challenges: [] };
-}
-
-function saveStore(store: ChallengeStore) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-}
+// In-memory claim registry — session only, no persistence
+const sessionClaims: Record<string, boolean> = {};
 
 /** Compute live progress for each challenge */
 function computeProgress(challenge: Omit<DailyChallenge, "progress" | "completed" | "rewardClaimed">): number {
@@ -125,33 +108,24 @@ export function getDailyChallenges(): DailyChallenge[] {
   const today = todayStr();
   const store = loadStore();
 
-  // Claim map is always empty — no localStorage hydration
-  const claimMap: Record<string, boolean> = {};
 
   const templates = pickChallenges(today);
   return templates.map((tmpl) => {
     const progress = computeProgress(tmpl);
     const completed = progress >= tmpl.target;
-    const rewardClaimed = claimMap[tmpl.id] ?? false;
+    const rewardClaimed = sessionClaims[tmpl.id] ?? false;
     return { ...tmpl, progress, completed, rewardClaimed };
   });
 }
 
 /** Claim XP reward for a completed challenge. Returns XP awarded (0 if already claimed). */
 export function claimChallengeReward(challengeId: string, xpReward: number): number {
-  const today = todayStr();
-  const store = loadStore();
+  if (sessionClaims[challengeId]) return 0;
 
-  // No localStorage read — always allow claim in current session
-  const existing = store.challenges.find((c) => c.id === challengeId);
-  if (existing?.rewardClaimed) return 0;
+  // Mark claimed in session memory only — no localStorage write
+  sessionClaims[challengeId] = true;
 
-  // Mark as claimed
-  const updated = store.challenges.filter((c) => c.id !== challengeId);
-  updated.push({ id: challengeId, rewardClaimed: true });
-  saveStore({ date: today, challenges: updated });
-
-  // Award XP
+  // XP is applied to in-memory state only; no persistence
   const user = getUser();
   user.xp += xpReward;
   user.totalXp += xpReward;
@@ -159,6 +133,6 @@ export function claimChallengeReward(challengeId: string, xpReward: number): num
     user.xp -= user.xpToNextLevel;
     user.level += 1;
   }
-  saveUser(user);
+  // saveUser intentionally omitted
   return xpReward;
 }
