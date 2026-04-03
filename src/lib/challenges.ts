@@ -64,11 +64,9 @@ interface ChallengeStore {
   challenges: StoredChallenge[];
 }
 
-/** Load challenge claim state from localStorage */
+/** Return an empty store — no localStorage read */
 function loadStore(): ChallengeStore {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return { date: "", challenges: [] };
-  return JSON.parse(raw);
+  return { date: "", challenges: [] };
 }
 
 function saveStore(store: ChallengeStore) {
@@ -127,14 +125,8 @@ export function getDailyChallenges(): DailyChallenge[] {
   const today = todayStr();
   const store = loadStore();
 
-  // Reset store if it's a new day
+  // Claim map is always empty — no localStorage hydration
   const claimMap: Record<string, boolean> = {};
-  if (store.date === today) {
-    store.challenges.forEach((c) => { claimMap[c.id] = c.rewardClaimed; });
-  } else {
-    // New day — reset
-    saveStore({ date: today, challenges: [] });
-  }
 
   const templates = pickChallenges(today);
   return templates.map((tmpl) => {
@@ -150,12 +142,7 @@ export function claimChallengeReward(challengeId: string, xpReward: number): num
   const today = todayStr();
   const store = loadStore();
 
-  // Ensure store is for today
-  if (store.date !== today) {
-    saveStore({ date: today, challenges: [] });
-    return 0;
-  }
-
+  // No localStorage read — always allow claim in current session
   const existing = store.challenges.find((c) => c.id === challengeId);
   if (existing?.rewardClaimed) return 0;
 

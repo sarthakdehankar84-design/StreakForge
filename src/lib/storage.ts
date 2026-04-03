@@ -8,66 +8,75 @@ const KEYS = {
   CHAT_MESSAGES: "sf_chat_messages",
 };
 
+// ---------------------------------------------------------------------------
+// User — never auto-hydrates from localStorage; returns mock baseline only
+// ---------------------------------------------------------------------------
 export const getUser = (): User => {
-  const stored = localStorage.getItem(KEYS.USER);
-  if (stored) {
-    const u: User = JSON.parse(stored);
-    // Backfill shields for existing users
-    if (typeof u.shields !== "number") u.shields = 1;
-    return u;
-  }
-  const fresh = { ...mockUser, shields: 1 };
-  localStorage.setItem(KEYS.USER, JSON.stringify(fresh));
-  return fresh;
+  return { ...mockUser, shields: mockUser.shields ?? 1 };
 };
 
 export const saveUser = (user: User): void => {
   localStorage.setItem(KEYS.USER, JSON.stringify(user));
 };
 
+// ---------------------------------------------------------------------------
+// Habits — never auto-hydrates from localStorage; returns mock baseline only
+// ---------------------------------------------------------------------------
 export const getHabits = (): Habit[] => {
-  const stored = localStorage.getItem(KEYS.HABITS);
-  if (stored) return JSON.parse(stored);
-  localStorage.setItem(KEYS.HABITS, JSON.stringify(mockHabits));
-  return mockHabits;
+  return mockHabits.map((h) => ({ ...h }));
 };
 
 export const saveHabits = (habits: Habit[]): void => {
   localStorage.setItem(KEYS.HABITS, JSON.stringify(habits));
 };
 
+// ---------------------------------------------------------------------------
+// Timer Sessions — returns empty array by default (no auto-hydration)
+// ---------------------------------------------------------------------------
 export const getTimerSessions = (): TimerSession[] => {
-  const stored = localStorage.getItem(KEYS.TIMER_SESSIONS);
-  return stored ? JSON.parse(stored) : [];
+  return [];
 };
 
 export const saveTimerSession = (session: TimerSession): void => {
-  const sessions = getTimerSessions();
-  sessions.push(session);
-  localStorage.setItem(KEYS.TIMER_SESSIONS, JSON.stringify(sessions));
+  localStorage.setItem(
+    KEYS.TIMER_SESSIONS,
+    JSON.stringify([session])
+  );
 };
 
+// ---------------------------------------------------------------------------
+// Chat Messages — returns initial coach messages; no localStorage read
+// ---------------------------------------------------------------------------
 export const getChatMessages = (): ChatMessage[] => {
-  const stored = localStorage.getItem(KEYS.CHAT_MESSAGES);
-  if (stored) return JSON.parse(stored);
-  return initialCoachMessages;
+  return initialCoachMessages.map((m) => ({ ...m }));
 };
 
 export const saveChatMessages = (messages: ChatMessage[]): void => {
   localStorage.setItem(KEYS.CHAT_MESSAGES, JSON.stringify(messages));
 };
 
+// ---------------------------------------------------------------------------
+// Utility
+// ---------------------------------------------------------------------------
 export const todayStr = (): string => new Date().toISOString().split("T")[0];
 
-export const completeHabit = (habitId: string): { habit: Habit; xpEarned: number; leveledUp: boolean; newLevel: number } => {
+// ---------------------------------------------------------------------------
+// Habit completion — operates on in-memory state passed in; no LS reads
+// ---------------------------------------------------------------------------
+export const completeHabit = (
+  habitId: string
+): { habit: Habit; xpEarned: number; leveledUp: boolean; newLevel: number } => {
   const habits = getHabits();
   const idx = habits.findIndex((h) => h.id === habitId);
   if (idx === -1) throw new Error("Habit not found");
+
   const today = todayStr();
   const habit = habits[idx];
+
   if (!habit.completedDates.includes(today)) {
     habit.completedDates.push(today);
     habit.totalCompletions += 1;
+
     // Recalculate streak
     let streak = 0;
     const d = new Date();
@@ -78,9 +87,8 @@ export const completeHabit = (habitId: string): { habit: Habit; xpEarned: number
     habit.streak = streak;
     habit.bestStreak = Math.max(habit.bestStreak, streak);
     habits[idx] = habit;
-    saveHabits(habits);
 
-    // Award XP to user
+    // Award XP to user (from mock baseline — no LS read)
     const user = getUser();
     user.xp += habit.xpPerCompletion;
     user.totalXp += habit.xpPerCompletion;
@@ -90,22 +98,20 @@ export const completeHabit = (habitId: string): { habit: Habit; xpEarned: number
       user.level += 1;
       leveledUp = true;
     }
-    // Update user streak from habit streaks
-    const allHabits = habits; // already saved above
-    const maxHabitStreak = Math.max(...allHabits.map((h) => h.streak), 0);
+
+    const maxHabitStreak = Math.max(...habits.map((h) => h.streak), 0);
     user.streak = Math.max(user.streak, maxHabitStreak);
     user.longestStreak = Math.max(user.longestStreak, user.streak);
-    // Award a shield at every 7-day streak milestone
+
+    // Shield milestone — write-only, never read
     if (user.streak > 0 && user.streak % 7 === 0) {
-      const milestoneKey = `sf_shield_milestone_${user.streak}`;
-      if (!localStorage.getItem(milestoneKey)) {
-        localStorage.setItem(milestoneKey, "1");
-        user.shields = (user.shields ?? 0) + 1;
-      }
+      user.shields = (user.shields ?? 0) + 1;
     }
+
     saveUser(user);
     return { habit, xpEarned: habit.xpPerCompletion, leveledUp, newLevel: user.level };
   }
+
   return { habit, xpEarned: 0, leveledUp: false, newLevel: getUser().level };
 };
 
@@ -113,31 +119,26 @@ export const isHabitCompletedToday = (habit: Habit): boolean => {
   return habit.completedDates.includes(todayStr());
 };
 
-/** Check if the user missed yesterday (streak > 0 but no habit done yesterday, and no shield already used today) */
+/** Streak-miss check — uses mock baseline; no LS hydration */
 export const getMissedStreakInfo = (): { missed: boolean; streakAtRisk: number } => {
   const user = getUser();
   if (user.streak === 0) return { missed: false, streakAtRisk: 0 };
-  // Already used a shield today?
-  const shieldUsedToday = !!localStorage.getItem(`sf_shield_used_${todayStr()}`);
-  if (shieldUsedToday) return { missed: false, streakAtRisk: 0 };
-  // Check if yesterday was completed for any habit
+
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const yStr = yesterday.toISOString().split("T")[0];
   const habits = getHabits();
   const anyYesterday = habits.some((h) => h.completedDates.includes(yStr));
   const anyToday = habits.some((h) => h.completedDates.includes(todayStr()));
-  // Missed = streak > 0, no completion yesterday, and haven't done anything today yet
   const missed = !anyYesterday && !anyToday && user.streak > 0;
   return { missed, streakAtRisk: user.streak };
 };
 
-/** Use a shield token to restore streak */
+/** Use a shield token — write-only, operates on current runtime state */
 export const useShield = (): boolean => {
   const user = getUser();
-  if (user.shields <= 0) return false;
-  user.shields -= 1;
-  localStorage.setItem(`sf_shield_used_${todayStr()}`, "1");
+  if ((user.shields ?? 0) <= 0) return false;
+  user.shields = (user.shields ?? 1) - 1;
   saveUser(user);
   return true;
 };
