@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, Sparkles, RefreshCw } from "lucide-react";
-import { getChatMessages, saveChatMessages } from "@/lib/storage";
-import { coachResponses } from "@/lib/mockData";
+import { Send, Bot, Sparkles, RefreshCw, Loader2 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { fetchChatMessages, saveChatMessage, clearChatMessages, getOrCreateGameState, fetchHabits } from "@/lib/db";
+import { supabase } from "@/lib/supabase";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import type { ChatMessage } from "@/types";
+import { getLevelTitle } from "@/constants";
+import { todayStr } from "@/lib/db";
 
 const QUICK_PROMPTS = [
   "How are my habits looking?",
@@ -12,21 +16,59 @@ const QUICK_PROMPTS = [
   "How do I level up faster?",
 ];
 
-let responseIndex = 0;
-
 export default function Coach() {
-  const [messages, setMessages] = useState<ChatMessage[]>(getChatMessages());
+  const { user } = useAuth();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [userContext, setUserContext] = useState<Record<string, unknown>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([
+      fetchChatMessages(user.id),
+      getOrCreateGameState(user.id),
+      fetchHabits(user.id),
+    ]).then(([msgs, gs, habits]) => {
+      const today = todayStr();
+      const todayCompleted = habits.filter((h) => h.completedDates.includes(today)).length;
+
+      if (msgs.length === 0) {
+        const welcome: ChatMessage = {
+          id: `welcome_${Date.now()}`,
+          role: "coach",
+          content: `Hey ${user.username}! 👋 I'm Forge, your AI study coach. You're Level ${gs.level} with a ${gs.streak}-day streak — that's impressive! What are you working on today?`,
+          timestamp: new Date().toISOString(),
+          type: "motivation",
+        };
+        setMessages([welcome]);
+        saveChatMessage(user.id, welcome);
+      } else {
+        setMessages(msgs);
+      }
+
+      setUserContext({
+        level: gs.level,
+        levelTitle: getLevelTitle(gs.level),
+        streak: gs.streak,
+        longestStreak: gs.longestStreak,
+        totalXp: gs.totalXp,
+        habitCount: habits.length,
+        todayCompleted,
+      });
+      setLoading(false);
+    });
+  }, [user]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  const sendMessage = (text: string) => {
-    if (!text.trim()) return;
+  const sendMessage = async (text: string) => {
+    if (!text.trim() || !user) return;
 
     const userMsg: ChatMessage = {
       id: `msg_${Date.now()}`,
@@ -39,38 +81,64 @@ export default function Coach() {
     setMessages(updated);
     setInput("");
     setIsTyping(true);
+    await saveChatMessage(user.id, userMsg);
 
-    // Simulate coach response
-    setTimeout(() => {
-      const responses = coachResponses.default;
-      const template = responses[responseIndex % responses.length];
-      responseIndex++;
+    // Build messages for API (last 10 for context)
+    const apiMessages = updated.slice(-10).map((m) => ({
+      role: m.role === "coach" ? "assistant" : "user",
+      content: m.content,
+    }));
 
-      const coachMsg: ChatMessage = {
-        ...template,
-        id: `msg_${Date.now()}_c`,
-        timestamp: new Date().toISOString(),
-      };
+    const { data, error } = await supabase.functions.invoke("coach-chat", {
+      body: { messages: apiMessages, userContext },
+    });
 
-      const final = [...updated, coachMsg];
-      setMessages(final);
-      saveChatMessages(final);
-      setIsTyping(false);
-    }, 1200 + Math.random() * 800);
+    let content = "Keep pushing — consistency is everything! 💪";
+    let type: ChatMessage["type"] = "motivation";
+
+    if (error) {
+      let errorMessage = error.message;
+      if (error instanceof FunctionsHttpError) {
+        try {
+          const statusCode = error.context?.status ?? 500;
+          const textContent = await error.context?.text();
+          errorMessage = `[Code: ${statusCode}] ${textContent || error.message}`;
+        } catch {
+          errorMessage = error.message;
+        }
+      }
+      console.error("Coach error:", errorMessage);
+    } else if (data) {
+      content = data.content ?? content;
+      type = data.type ?? "normal";
+    }
+
+    const coachMsg: ChatMessage = {
+      id: `msg_${Date.now()}_c`,
+      role: "coach",
+      content,
+      timestamp: new Date().toISOString(),
+      type,
+    };
+
+    const final = [...updated, coachMsg];
+    setMessages(final);
+    await saveChatMessage(user.id, coachMsg);
+    setIsTyping(false);
   };
 
-  const handleSend = () => sendMessage(input);
-
-  const clearChat = () => {
-    const reset = [{
+  const clearChat = async () => {
+    if (!user) return;
+    await clearChatMessages(user.id);
+    const reset: ChatMessage = {
       id: `msg_${Date.now()}`,
-      role: "coach" as const,
-      content: "Hey! Fresh start. What's on your mind today? I'm ready to help you crush your goals. 🎯",
+      role: "coach",
+      content: "Fresh start! 🎯 What are you working on today?",
       timestamp: new Date().toISOString(),
-      type: "normal" as const,
-    }];
-    setMessages(reset);
-    saveChatMessages(reset);
+      type: "normal",
+    };
+    setMessages([reset]);
+    await saveChatMessage(user.id, reset);
   };
 
   const getBubbleStyle = (msg: ChatMessage) => {
@@ -92,6 +160,14 @@ export default function Coach() {
     return type && badges[type] ? badges[type] : null;
   };
 
+  if (loading) {
+    return (
+      <div className="h-screen bg-gradient-to-b from-[#0a0a0f] via-[#0d0d1a] to-[#0a0a0f] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-forge-purple animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen bg-gradient-to-b from-[#0a0a0f] via-[#0d0d1a] to-[#0a0a0f] flex flex-col">
       {/* Header */}
@@ -105,14 +181,11 @@ export default function Coach() {
               <h1 className="text-base font-display font-bold">Forge AI Coach</h1>
               <div className="flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 rounded-full bg-forge-green animate-pulse" />
-                <span className="text-[11px] text-muted-foreground">Online · Powered by AI</span>
+                <span className="text-[11px] text-muted-foreground">Online · Powered by OnSpace AI</span>
               </div>
             </div>
           </div>
-          <button
-            onClick={clearChat}
-            className="w-9 h-9 rounded-xl glass flex items-center justify-center text-muted-foreground hover:text-foreground transition-all"
-          >
+          <button onClick={clearChat} className="w-9 h-9 rounded-xl glass flex items-center justify-center text-muted-foreground hover:text-foreground transition-all">
             <RefreshCw className="w-4 h-4" />
           </button>
         </div>
@@ -129,24 +202,13 @@ export default function Coach() {
             )}
             <div className={`max-w-[80%] ${msg.role === "user" ? "items-end" : "items-start"} flex flex-col gap-1`}>
               {msg.role === "coach" && getTypeBadge(msg.type) && (
-                <span
-                  className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                  style={{
-                    color: getTypeBadge(msg.type)!.color,
-                    background: `${getTypeBadge(msg.type)!.color}20`,
-                  }}
-                >
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                  style={{ color: getTypeBadge(msg.type)!.color, background: `${getTypeBadge(msg.type)!.color}20` }}>
                   {getTypeBadge(msg.type)!.label}
                 </span>
               )}
-              <div
-                className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-forge-purple/30 border border-forge-purple/40 text-foreground rounded-br-sm"
-                    : "border border-white/8 text-foreground rounded-bl-sm"
-                }`}
-                style={getBubbleStyle(msg)}
-              >
+              <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${msg.role === "user" ? "bg-forge-purple/30 border border-forge-purple/40 rounded-br-sm" : "border border-white/8 rounded-bl-sm"}`}
+                style={getBubbleStyle(msg)}>
                 {msg.content}
               </div>
               <span className="text-[10px] text-muted-foreground px-1">
@@ -155,7 +217,6 @@ export default function Coach() {
             </div>
           </div>
         ))}
-
         {isTyping && (
           <div className="flex justify-start gap-2">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-forge-purple to-forge-cyan flex items-center justify-center flex-shrink-0">
@@ -163,11 +224,8 @@ export default function Coach() {
             </div>
             <div className="glass rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1">
               {[0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  className="w-1.5 h-1.5 rounded-full bg-forge-purple-light"
-                  style={{ animation: `pulse 1s ease-in-out ${i * 0.15}s infinite` }}
-                />
+                <div key={i} className="w-1.5 h-1.5 rounded-full bg-forge-purple-light"
+                  style={{ animation: `pulse 1s ease-in-out ${i * 0.15}s infinite` }} />
               ))}
             </div>
           </div>
@@ -179,11 +237,8 @@ export default function Coach() {
       <div className="px-4 pb-2 flex-shrink-0">
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
           {QUICK_PROMPTS.map((p) => (
-            <button
-              key={p}
-              onClick={() => sendMessage(p)}
-              className="flex-shrink-0 text-xs px-3 py-2 rounded-full glass border border-white/10 text-muted-foreground hover:text-foreground hover:border-forge-purple/40 transition-all duration-200"
-            >
+            <button key={p} onClick={() => sendMessage(p)}
+              className="flex-shrink-0 text-xs px-3 py-2 rounded-full glass border border-white/10 text-muted-foreground hover:text-foreground hover:border-forge-purple/40 transition-all">
               {p}
             </button>
           ))}
@@ -193,20 +248,13 @@ export default function Coach() {
       {/* Input */}
       <div className="px-4 pb-24 flex-shrink-0">
         <div className="glass-strong rounded-2xl flex items-center gap-3 px-4 py-3 border border-white/10">
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
+          <input ref={inputRef} type="text" value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
             placeholder="Ask your coach anything..."
-            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isTyping}
-            className="w-9 h-9 rounded-xl bg-gradient-to-br from-forge-purple to-forge-cyan flex items-center justify-center disabled:opacity-40 transition-all hover:scale-105 active:scale-95"
-          >
+            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none" />
+          <button onClick={() => sendMessage(input)} disabled={!input.trim() || isTyping}
+            className="w-9 h-9 rounded-xl bg-gradient-to-br from-forge-purple to-forge-cyan flex items-center justify-center disabled:opacity-40 transition-all hover:scale-105 active:scale-95">
             <Send className="w-4 h-4 text-white" />
           </button>
         </div>

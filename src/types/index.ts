@@ -18,6 +18,7 @@ export type HabitCategory = "study" | "health" | "reading" | "coding" | "mindful
 export interface User {
   id: string;
   name: string;
+  username?: string;
   avatar: string;
   level: number;
   xp: number;
