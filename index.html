@@ -1,13 +1,144 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StreakForge</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StreakForge Mobile</title>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(180deg, #4a90e2 0%, #50e3c2 100%);
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .container {
+      background: #fff;
+      border-radius: 20px;
+      padding: 25px;
+      width: 90%;
+      max-width: 400px;
+      text-align: center;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+    }
+    h2 {
+      color: #4a90e2;
+      margin-bottom: 20px;
+    }
+    input {
+      width: 80%;
+      padding: 12px;
+      margin: 10px 0;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      font-size: 16px;
+    }
+    button {
+      padding: 12px 20px;
+      margin: 8px 5px;
+      border-radius: 10px;
+      border: none;
+      background-color: #4a90e2;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    button:hover {
+      background-color: #357ABD;
+    }
+    .message {
+      margin-top: 15px;
+      padding: 10px;
+      border-radius: 10px;
+      display: none;
+    }
+    .success { background-color: #d4edda; color: #155724; }
+    .error { background-color: #f8d7da; color: #721c24; }
+    .streak {
+      margin-top: 20px;
+      font-size: 18px;
+      color: #50e3c2;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>StreakForge</h2>
+    <input type="email" id="email" placeholder="Email"><br>
+    <input type="password" id="password" placeholder="Password"><br>
+    <button onclick="login()">Login</button>
+    <button onclick="signup()">Sign Up</button>
+    <button onclick="logout()">Logout</button>
+    
+    <div id="message" class="message"></div>
+    <div class="streak" id="streakDisplay">🔥 Current Streak: 0</div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyB2Ehtqnn8ULUdBlzguqehz7fF7Tvj475o",
+      authDomain: "streakforge-1.firebaseapp.com",
+      projectId: "streakforge-1",
+      storageBucket: "streakforge-1.appspot.com",
+      messagingSenderId: "417049730799",
+      appId: "1:417049730799:web:0da3c237ba090450afc51a",
+      measurementId: "G-L5GZ955J2J"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    let currentStreak = 0;
+
+    const messageEl = document.getElementById("message");
+    const streakEl = document.getElementById("streakDisplay");
+
+    function showMessage(text, type="success") {
+      messageEl.innerText = text;
+      messageEl.className = `message ${type}`;
+      messageEl.style.display = "block";
+      setTimeout(()=>{ messageEl.style.display="none"; }, 3000);
+    }
+
+    function updateStreakDisplay() {
+      streakEl.innerText = `🔥 Current Streak: ${currentStreak}`;
+    }
+
+    function signup() {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      auth.createUserWithEmailAndPassword(email, password)
+        .then(() => {
+          currentStreak = 0;
+          updateStreakDisplay();
+          showMessage("Signup Successful ✅", "success");
+        })
+        .catch(e => showMessage(e.message, "error"));
+    }
+
+    function login() {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      auth.signInWithEmailAndPassword(email, password)
+        .then(() => {
+          currentStreak = 5; // demo streak
+          updateStreakDisplay();
+          showMessage("Login Successful 🎉", "success");
+        })
+        .catch(e => showMessage(e.message, "error"));
+    }
+
+    function logout() {
+      auth.signOut().then(() => {
+        currentStreak = 0;
+        updateStreakDisplay();
+        showMessage("Logged out 👋", "success");
+      });
+    }
+  </script>
+</body>
 </html>
