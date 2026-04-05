@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import {
   ArrowLeft, Flame, Zap, Clock, Trophy, Star, Share2, Copy, Check,
   Timer, Target, TrendingUp, Crown, ChevronRight, Swords, LogOut, Loader2, Camera,
+  Pencil, X, Save,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { useAuth } from "@/hooks/useAuth";
@@ -96,6 +97,10 @@ export default function Profile() {
   const [copied, setCopied] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [editUsername, setEditUsername] = useState("");
+  const [editFullName, setEditFullName] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -112,6 +117,31 @@ export default function Profile() {
       setLoading(false);
     });
   }, [user]);
+
+  const openEditProfile = () => {
+    setEditUsername(user?.username ?? "");
+    setEditFullName(user?.fullName ?? "");
+    setEditingProfile(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    const trimmedUsername = editUsername.trim();
+    const trimmedFullName = editFullName.trim();
+    if (!trimmedUsername) {
+      toast.error("Username cannot be empty");
+      return;
+    }
+    setSavingProfile(true);
+    await updateUserProfile(user.id, {
+      username: trimmedUsername,
+      fullName: trimmedFullName || undefined,
+    });
+    await refreshUser();
+    toast.success("Profile updated!");
+    setSavingProfile(false);
+    setEditingProfile(false);
+  };
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!user || !e.target.files?.[0]) return;
@@ -228,6 +258,13 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
               <div className="flex items-center gap-2 mb-0.5">
                 <h2 className="text-lg font-display font-bold truncate">{user?.username}</h2>
                 <Crown className="w-4 h-4 text-forge-gold flex-shrink-0" />
+                <button
+                  onClick={openEditProfile}
+                  className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-forge-purple-light hover:bg-forge-purple/15 transition-all flex-shrink-0"
+                  title="Edit profile"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
               </div>
               <p className="text-sm text-forge-purple-light font-semibold mb-2">
                 {gameState ? `${getLevelTitle(gameState.level)} · Level ${gameState.level}` : ""}
@@ -250,6 +287,87 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
           </div>
         </div>
       </div>
+
+      {/* Inline Edit Profile */}
+      {editingProfile && (
+        <div className="px-4 mb-4">
+          <div
+            className="rounded-2xl p-4"
+            style={{
+              background: "linear-gradient(135deg, rgba(147,51,234,0.12), rgba(34,211,238,0.06))",
+              border: "1px solid rgba(147,51,234,0.40)",
+            }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-forge-purple-light" />
+                <span className="text-sm font-display font-bold">Edit Profile</span>
+              </div>
+              <button
+                onClick={() => setEditingProfile(false)}
+                className="w-7 h-7 rounded-lg glass flex items-center justify-center text-muted-foreground hover:text-foreground transition-all"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1.5 font-medium">Username</label>
+                <input
+                  type="text"
+                  value={editUsername}
+                  onChange={(e) => setEditUsername(e.target.value)}
+                  placeholder="your_username"
+                  maxLength={32}
+                  className="w-full px-3 py-2.5 rounded-xl text-sm font-medium text-white placeholder:text-white/25 outline-none transition-all"
+                  style={{
+                    background: "rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(147,51,234,0.35)",
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(147,51,234,0.7)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(147,51,234,0.35)")}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1.5 font-medium">Full Name <span className="text-white/20">(optional)</span></label>
+                <input
+                  type="text"
+                  value={editFullName}
+                  onChange={(e) => setEditFullName(e.target.value)}
+                  placeholder="Your full name"
+                  maxLength={64}
+                  className="w-full px-3 py-2.5 rounded-xl text-sm font-medium text-white placeholder:text-white/25 outline-none transition-all"
+                  style={{
+                    background: "rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(147,51,234,0.35)",
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(147,51,234,0.7)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(147,51,234,0.35)")}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEditingProfile(false)}
+                className="flex-1 py-2.5 rounded-xl glass text-sm font-semibold text-muted-foreground hover:text-foreground transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveProfile}
+                disabled={savingProfile || !editUsername.trim()}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-50"
+                style={{ background: "linear-gradient(135deg, #9333ea, #7c3aed)", boxShadow: "0 0 18px rgba(147,51,234,0.4)" }}
+              >
+                {savingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {savingProfile ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Heatmap */}
       <div className="px-4 mb-4"><HabitHeatmap habits={habits} /></div>
