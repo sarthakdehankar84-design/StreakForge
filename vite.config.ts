@@ -4,6 +4,7 @@ import path from "path";
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: "/repo-name/",   // <-- Yahan apne GitHub repo ka name daalo
   server: {
     host: "::",
     port: 8080,
