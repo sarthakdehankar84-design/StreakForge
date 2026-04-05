@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
   ArrowLeft, Flame, Zap, Clock, Trophy, Star, Share2, Copy, Check,
@@ -101,6 +101,8 @@ export default function Profile() {
   const [editUsername, setEditUsername] = useState("");
   const [editFullName, setEditFullName] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
+  const [usernameStatus, setUsernameStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid">("idle");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -121,8 +123,46 @@ export default function Profile() {
   const openEditProfile = () => {
     setEditUsername(user?.username ?? "");
     setEditFullName(user?.fullName ?? "");
+    setUsernameStatus("idle");
     setEditingProfile(true);
   };
+
+  // Debounced username availability check
+  useEffect(() => {
+    if (!editingProfile) return;
+    const trimmed = editUsername.trim();
+
+    // Same as current username — always valid
+    if (trimmed === (user?.username ?? "")) {
+      setUsernameStatus("idle");
+      return;
+    }
+
+    // Basic format validation
+    if (trimmed.length < 3) {
+      setUsernameStatus(trimmed.length === 0 ? "idle" : "invalid");
+      return;
+    }
+    if (!/^[a-zA-Z0-9_.-]+$/.test(trimmed)) {
+      setUsernameStatus("invalid");
+      return;
+    }
+
+    setUsernameStatus("checking");
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    debounceRef.current = setTimeout(async () => {
+      const { data } = await supabase
+        .from("user_profiles")
+        .select("id")
+        .eq("username", trimmed)
+        .neq("id", user?.id ?? "")
+        .maybeSingle();
+      setUsernameStatus(data ? "taken" : "available");
+    }, 500);
+
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [editUsername, editingProfile, user?.username, user?.id]);
 
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -130,6 +170,14 @@ export default function Profile() {
     const trimmedFullName = editFullName.trim();
     if (!trimmedUsername) {
       toast.error("Username cannot be empty");
+      return;
+    }
+    if (usernameStatus === "taken") {
+      toast.error("That username is already taken");
+      return;
+    }
+    if (usernameStatus === "invalid") {
+      toast.error("Username contains invalid characters");
       return;
     }
     setSavingProfile(true);
@@ -142,6 +190,13 @@ export default function Profile() {
     setSavingProfile(false);
     setEditingProfile(false);
   };
+
+  const canSave = useMemo(() => {
+    const trimmed = editUsername.trim();
+    if (!trimmed) return false;
+    if (usernameStatus === "taken" || usernameStatus === "invalid" || usernameStatus === "checking") return false;
+    return true;
+  }, [editUsername, usernameStatus]);
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!user || !e.target.files?.[0]) return;
@@ -314,20 +369,65 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
             <div className="space-y-3 mb-4">
               <div>
                 <label className="block text-xs text-muted-foreground mb-1.5 font-medium">Username</label>
-                <input
-                  type="text"
-                  value={editUsername}
-                  onChange={(e) => setEditUsername(e.target.value)}
-                  placeholder="your_username"
-                  maxLength={32}
-                  className="w-full px-3 py-2.5 rounded-xl text-sm font-medium text-white placeholder:text-white/25 outline-none transition-all"
-                  style={{
-                    background: "rgba(255,255,255,0.06)",
-                    border: "1px solid rgba(147,51,234,0.35)",
-                  }}
-                  onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(147,51,234,0.7)")}
-                  onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(147,51,234,0.35)")}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value)}
+                    placeholder="your_username"
+                    maxLength={32}
+                    className="w-full px-3 py-2.5 pr-9 rounded-xl text-sm font-medium text-white placeholder:text-white/25 outline-none transition-all"
+                    style={{
+                      background: "rgba(255,255,255,0.06)",
+                      border: `1px solid ${
+                        usernameStatus === "available" ? "rgba(34,197,94,0.6)"
+                        : usernameStatus === "taken" || usernameStatus === "invalid" ? "rgba(239,68,68,0.6)"
+                        : "rgba(147,51,234,0.35)"
+                      }`,
+                    }}
+                    onFocus={(e) => {
+                      if (usernameStatus === "idle" || usernameStatus === "checking") {
+                        e.currentTarget.style.borderColor = "rgba(147,51,234,0.7)";
+                      }
+                    }}
+                    onBlur={(e) => {
+                      if (usernameStatus === "idle" || usernameStatus === "checking") {
+                        e.currentTarget.style.borderColor = "rgba(147,51,234,0.35)";
+                      }
+                    }}
+                  />
+                  {/* Status indicator */}
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
+                    {usernameStatus === "checking" && (
+                      <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+                    )}
+                    {usernameStatus === "available" && (
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(34,197,94,0.5)" }}>
+                        <Check className="w-3 h-3 text-green-400" />
+                      </div>
+                    )}
+                    {(usernameStatus === "taken" || usernameStatus === "invalid") && (
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: "rgba(239,68,68,0.2)", border: "1px solid rgba(239,68,68,0.5)" }}>
+                        <X className="w-3 h-3 text-red-400" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* Hint text */}
+                <div className="mt-1.5 min-h-[16px]">
+                  {usernameStatus === "taken" && (
+                    <p className="text-[11px] text-red-400">Username is already taken</p>
+                  )}
+                  {usernameStatus === "invalid" && (
+                    <p className="text-[11px] text-red-400">Only letters, numbers, _ . - allowed (min 3 chars)</p>
+                  )}
+                  {usernameStatus === "available" && (
+                    <p className="text-[11px] text-green-400">Username is available!</p>
+                  )}
+                  {usernameStatus === "checking" && (
+                    <p className="text-[11px] text-muted-foreground">Checking availability…</p>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="block text-xs text-muted-foreground mb-1.5 font-medium">Full Name <span className="text-white/20">(optional)</span></label>
@@ -357,7 +457,7 @@ Build habits. Level up. Dominate. StreakForge 🚀`;
               </button>
               <button
                 onClick={handleSaveProfile}
-                disabled={savingProfile || !editUsername.trim()}
+                disabled={savingProfile || !canSave}
                 className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-50"
                 style={{ background: "linear-gradient(135deg, #9333ea, #7c3aed)", boxShadow: "0 0 18px rgba(147,51,234,0.4)" }}
               >
